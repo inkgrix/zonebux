@@ -27,13 +27,39 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Calendar, Tag, Store, Landmark, FileText, Edit3, TrendingUp, AlertTriangle, CreditCard } from "lucide-react";
+import {
+  Plus,
+  Calendar,
+  Tag,
+  Store,
+  Landmark,
+  FileText,
+  Edit3,
+  TrendingUp,
+  AlertTriangle,
+  CreditCard,
+  Calculator,
+  Sparkles,
+  Coins,
+  Check,
+  RotateCcw,
+} from "lucide-react";
 
 interface TransactionFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (transaction: Omit<Transaction, "id">) => Promise<boolean>;
   defaultAccount?: AccountType;
+  initialData?: Transaction | null;
+  onUpdate?: (transaction: Transaction) => Promise<boolean>;
+}
+
+function getTodayLocalDateString(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function TransactionFormModal({
@@ -41,7 +67,10 @@ export function TransactionFormModal({
   onClose,
   onSubmit,
   defaultAccount = "ร้าน Zonebux",
+  initialData = null,
+  onUpdate,
 }: TransactionFormModalProps) {
+  const isEditMode = Boolean(initialData && initialData.id);
   const [account, setAccount] = useState<AccountType>(defaultAccount);
   const [type, setType] = useState<TransactionType>("รายรับ");
   const [amount, setAmount] = useState<string>("");
@@ -53,6 +82,15 @@ export function TransactionFormModal({
   const [note, setNote] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>("");
+
+  // 🎮 Robux Rate Calculator State
+  const [showRobuxCalc, setShowRobuxCalc] = useState<boolean>(false);
+  const [robuxAmount, setRobuxAmount] = useState<string>("300");
+  const [sellRate, setSellRate] = useState<string>("2.85");
+  const [costRate, setCostRate] = useState<string>("3.5");
+  const [roundMethod, setRoundMethod] = useState<"round" | "ceil" | "exact">("round");
+  const [calcNoteFormat, setCalcNoteFormat] = useState<boolean>(true);
+  const [appliedAnim, setAppliedAnim] = useState<boolean>(false);
 
   // Dynamically compute categories according to selected account and type
   const availableCategories = useMemo(() => {
@@ -69,12 +107,30 @@ export function TransactionFormModal({
 
   useEffect(() => {
     if (isOpen) {
-      setDate(new Date().toISOString().split("T")[0]);
-      setAccount(defaultAccount);
-      setCost("");
-      setPaymentMethod("บัญชีธนาคาร");
+      if (initialData) {
+        setAccount(initialData.account || defaultAccount);
+        setType(initialData.type || "รายรับ");
+        setAmount(initialData.amount ? String(initialData.amount) : "");
+        setCost(initialData.cost !== undefined && initialData.cost > 0 ? String(initialData.cost) : "");
+        setCategory(initialData.category || "");
+        setCustomCategory("");
+        setPaymentMethod((initialData.paymentMethod as PaymentMethod) || "บัญชีธนาคาร");
+        setDate(initialData.date || getTodayLocalDateString());
+        setNote(initialData.note || "");
+        setShowRobuxCalc(false);
+      } else {
+        setDate(getTodayLocalDateString());
+        setAccount(defaultAccount);
+        setType("รายรับ");
+        setAmount("");
+        setCost("");
+        setNote("");
+        setCustomCategory("");
+        setPaymentMethod("บัญชีธนาคาร");
+        setShowRobuxCalc(false);
+      }
     }
-  }, [isOpen, defaultAccount]);
+  }, [isOpen, defaultAccount, initialData]);
 
   useEffect(() => {
     if (availableCategories.length > 0 && (!category || !(availableCategories as readonly string[]).includes(category))) {
@@ -90,8 +146,8 @@ export function TransactionFormModal({
           ? ZONEBUX_INCOME_CATEGORIES
           : ZONEBUX_EXPENSE_CATEGORIES
         : type === "รายรับ"
-        ? GENERAL_INCOME_CATEGORIES
-        : GENERAL_EXPENSE_CATEGORIES;
+          ? GENERAL_INCOME_CATEGORIES
+          : GENERAL_EXPENSE_CATEGORIES;
     setCategory(newCats[0]);
     setCustomCategory("");
   };
@@ -104,8 +160,8 @@ export function TransactionFormModal({
           ? ZONEBUX_INCOME_CATEGORIES
           : ZONEBUX_EXPENSE_CATEGORIES
         : newType === "รายรับ"
-        ? GENERAL_INCOME_CATEGORIES
-        : GENERAL_EXPENSE_CATEGORIES;
+          ? GENERAL_INCOME_CATEGORIES
+          : GENERAL_EXPENSE_CATEGORIES;
     setCategory(newCats[0]);
     setCustomCategory("");
     if (newType === "รายจ่าย") {
@@ -139,6 +195,76 @@ export function TransactionFormModal({
     };
   }, [amount, cost, type]);
 
+  // 🎮 Robux Rate Computation (Robux ÷ Rate = THB)
+  const robuxCalculation = useMemo(() => {
+    const r = parseFloat(robuxAmount);
+    const sRate = parseFloat(sellRate);
+    const cRate = parseFloat(costRate);
+
+    if (isNaN(r) || r <= 0) return null;
+
+    const rawSellPrice = !isNaN(sRate) && sRate > 0 ? r / sRate : 0;
+    const rawCostPrice = !isNaN(cRate) && cRate > 0 ? r / cRate : 0;
+
+    const applyRound = (val: number) => {
+      if (roundMethod === "ceil") return Math.ceil(val);
+      if (roundMethod === "round") return Math.round(val);
+      return Math.round(val * 100) / 100;
+    };
+
+    const finalSellPrice = rawSellPrice > 0 ? applyRound(rawSellPrice) : 0;
+    const finalCostPrice = rawCostPrice > 0 ? applyRound(rawCostPrice) : 0;
+    const profit = finalSellPrice - finalCostPrice;
+    const margin = finalSellPrice > 0 ? (profit / finalSellPrice) * 100 : 0;
+
+    return {
+      robux: r,
+      rawSellPrice,
+      rawCostPrice,
+      finalSellPrice,
+      finalCostPrice,
+      profit,
+      margin,
+      isProfit: profit > 0,
+      isLoss: profit < 0,
+      isEven: profit === 0,
+    };
+  }, [robuxAmount, sellRate, costRate, roundMethod]);
+
+  const handleApplyRobuxCalc = () => {
+    if (!robuxCalculation || robuxCalculation.finalSellPrice <= 0) return;
+
+    setAmount(String(robuxCalculation.finalSellPrice));
+    if (robuxCalculation.finalCostPrice > 0) {
+      setCost(String(robuxCalculation.finalCostPrice));
+    } else {
+      setCost("");
+    }
+
+    if (account === "ร้าน Zonebux") {
+      if (!category.includes("Robux")) {
+        setCategory("Robux via ID-Pass");
+      }
+    }
+
+    if (calcNoteFormat) {
+      const sRate = parseFloat(sellRate);
+      const cRate = parseFloat(costRate);
+      let noteText = `${robuxCalculation.robux.toLocaleString()} Robux`;
+      if (sRate > 0 && cRate > 0) {
+        noteText += ` (เรทขาย ${sRate} / เรททุน ${cRate})`;
+      } else if (sRate > 0) {
+        noteText += ` (เรทขาย ${sRate})`;
+      }
+      setNote(noteText);
+    }
+
+    setAppliedAnim(true);
+    setTimeout(() => {
+      setAppliedAnim(false);
+    }, 2000);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
@@ -163,25 +289,44 @@ export function TransactionFormModal({
 
     setIsSubmitting(true);
     try {
-      const success = await onSubmit({
-        account,
-        type,
-        amount: parsedAmount,
-        cost: parsedCost && !isNaN(parsedCost) ? parsedCost : undefined,
-        profit: parsedCost !== undefined ? parsedAmount - parsedCost : undefined,
-        category: finalCategory,
-        paymentMethod: type === "รายรับ" ? paymentMethod : undefined,
-        date: date || new Date().toISOString().split("T")[0],
-        note: note.trim(),
-      });
+      if (isEditMode && initialData?.id && onUpdate) {
+        const success = await onUpdate({
+          id: initialData.id,
+          account,
+          type,
+          amount: parsedAmount,
+          cost: parsedCost && !isNaN(parsedCost) ? parsedCost : undefined,
+          profit: parsedCost !== undefined ? parsedAmount - parsedCost : undefined,
+          category: finalCategory,
+          paymentMethod: type === "รายรับ" ? paymentMethod : undefined,
+          date: date || getTodayLocalDateString(),
+          note: note.trim(),
+        });
 
-      if (success) {
-        setAmount("");
-        setCost("");
-        setNote("");
-        setPaymentMethod("บัญชีธนาคาร");
-        setCustomCategory("");
-        onClose();
+        if (success) {
+          onClose();
+        }
+      } else {
+        const success = await onSubmit({
+          account,
+          type,
+          amount: parsedAmount,
+          cost: parsedCost && !isNaN(parsedCost) ? parsedCost : undefined,
+          profit: parsedCost !== undefined ? parsedAmount - parsedCost : undefined,
+          category: finalCategory,
+          paymentMethod: type === "รายรับ" ? paymentMethod : undefined,
+          date: date || getTodayLocalDateString(),
+          note: note.trim(),
+        });
+
+        if (success) {
+          setAmount("");
+          setCost("");
+          setNote("");
+          setPaymentMethod("บัญชีธนาคาร");
+          setCustomCategory("");
+          onClose();
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการบันทึก";
@@ -196,15 +341,27 @@ export function TransactionFormModal({
       <DialogContent className="sm:max-w-lg p-6 bg-white border-slate-200 shadow-xl rounded-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="gap-1">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center">
-              <Plus className="w-4 h-4 stroke-[2.5]" />
+            <div
+              className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                isEditMode
+                  ? "bg-amber-100 text-amber-700"
+                  : "bg-sky-100 text-sky-700"
+              }`}
+            >
+              {isEditMode ? (
+                <Edit3 className="w-4 h-4" />
+              ) : (
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+              )}
             </div>
             <DialogTitle className="text-base font-bold text-slate-900">
-              บันทึกรายการ
+              {isEditMode ? "แก้ไขรายการ" : "บันทึกรายการ"}
             </DialogTitle>
           </div>
           <DialogDescription className="text-xs text-slate-500">
-            บันทึกรายรับหรือรายจ่าย ข้อมูลจะถูกส่งไปยัง Google Sheet ของคุณทันที
+            {isEditMode
+              ? `แก้ไขข้อมูลรายการ ID: ${initialData?.id || ""} ข้อมูลจะถูกซิงค์ไปยัง Google Sheet ทันที`
+              : "บันทึกรายรับหรือรายจ่าย ข้อมูลจะถูกส่งไปยัง Google Sheet ของคุณทันที"}
           </DialogDescription>
         </DialogHeader>
 
@@ -224,11 +381,10 @@ export function TransactionFormModal({
               <button
                 type="button"
                 onClick={() => handleAccountChange("ร้าน Zonebux")}
-                className={`py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                  account === "ร้าน Zonebux"
-                    ? "bg-white text-sky-800 font-bold shadow-xs"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
+                className={`py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${account === "ร้าน Zonebux"
+                  ? "bg-white text-sky-800 font-bold shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+                  }`}
               >
                 <Store className="w-3.5 h-3.5 text-sky-600" />
                 <span>ร้าน Zonebux</span>
@@ -236,11 +392,10 @@ export function TransactionFormModal({
               <button
                 type="button"
                 onClick={() => handleAccountChange("บัญชีร้านทั่วไป")}
-                className={`py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                  account === "บัญชีร้านทั่วไป"
-                    ? "bg-white text-indigo-800 font-bold shadow-xs"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
+                className={`py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${account === "บัญชีร้านทั่วไป"
+                  ? "bg-white text-indigo-800 font-bold shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+                  }`}
               >
                 <Landmark className="w-3.5 h-3.5 text-indigo-600" />
                 <span>บัญชีร้านทั่วไป</span>
@@ -253,26 +408,314 @@ export function TransactionFormModal({
             <button
               type="button"
               onClick={() => handleTypeChange("รายรับ")}
-              className={`py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
-                type === "รายรับ"
-                  ? "bg-white text-emerald-700 shadow-xs"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
+              className={`py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${type === "รายรับ"
+                ? "bg-white text-emerald-700 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+                }`}
             >
               + รายรับ (ยอดขาย)
             </button>
             <button
               type="button"
               onClick={() => handleTypeChange("รายจ่าย")}
-              className={`py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
-                type === "รายจ่าย"
-                  ? "bg-white text-rose-700 shadow-xs"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
+              className={`py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${type === "รายจ่าย"
+                ? "bg-white text-rose-700 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+                }`}
             >
               - รายจ่าย
             </button>
           </div>
+
+          {/* 🌟 2.1 Robux Rate Calculator (เฉพาะรายรับ) */}
+          {type === "รายรับ" && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <Coins className="w-3.5 h-3.5 text-amber-500" />
+                  <span>ตัวช่วยคิดเรท Robux</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowRobuxCalc((prev) => !prev)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer border ${showRobuxCalc
+                    ? "bg-sky-600 border-sky-600 text-white shadow-xs"
+                    : "bg-sky-50/80 border-sky-200 text-sky-700 hover:bg-sky-100"
+                    }`}
+                >
+                  <Calculator className="w-3.5 h-3.5" />
+                  <span>{showRobuxCalc ? "ปิดเครื่องคิดเรท" : "เปิดเครื่องคิดเรท Robux"}</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded font-extrabold ${showRobuxCalc
+                      ? "bg-white/20 text-white"
+                      : "bg-sky-200/80 text-sky-900"
+                      }`}
+                  >
+                    {showRobuxCalc ? "▲ ซ่อน" : "Auto"}
+                  </span>
+                </button>
+              </div>
+
+              {/* Collapsible Calculator Container */}
+              {showRobuxCalc && (
+                <div className="p-4 rounded-2xl bg-gradient-to-b from-sky-50/60 to-slate-50/80 border border-sky-200/90 space-y-3.5 animate-modalIn shadow-2xs">
+                  {/* Subheader */}
+                  <div className="flex items-center justify-between pb-2 border-b border-sky-100">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-sky-600 text-white flex items-center justify-center shadow-xs">
+                        <Calculator className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                          <span>คำนวณเรท Robux อัตโนมัติ</span>
+                          <span className="text-[10px] text-sky-700 bg-sky-100 px-1.5 py-0.2 rounded font-bold">
+                            Robux ÷ เรท = บาท
+                          </span>
+                        </h4>
+                        <p className="text-[10px] text-slate-500">
+                          คำนวณราคาขายและต้นทุนให้ทันที พร้อมปุ่มนำตัวเลขไปใส่ในฟอร์ม
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRobuxAmount("300");
+                        setSellRate("2.85");
+                        setCostRate("3.5");
+                      }}
+                      className="text-[11px] text-slate-400 hover:text-slate-700 flex items-center gap-1 font-medium cursor-pointer"
+                      title="รีเซ็ตค่าเริ่มต้น"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>รีเซ็ต</span>
+                    </button>
+                  </div>
+
+                  {/* 1. Robux Amount */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                        <Coins className="w-3.5 h-3.5 text-amber-500" />
+                        <span>จำนวน Robux ที่ลูกค้าสั่งซื้อ</span>
+                      </label>
+                      <span className="text-[10px] text-slate-400 font-medium">กดปุ่มด่วนหรือพิมพ์เอง</span>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-sky-600">
+                        R$
+                      </span>
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="เช่น 300"
+                        value={robuxAmount}
+                        onChange={(e) => setRobuxAmount(e.target.value)}
+                        className="pl-9 h-9 text-sm font-bold bg-white border-slate-200"
+                      />
+                    </div>
+                    {/* Quick Robux Chips */}
+                    <div className="flex flex-wrap gap-1 pt-0.5">
+                      {[100, 300, 500, 800, 1000, 1500, 2000].map((rVal) => (
+                        <button
+                          key={rVal}
+                          type="button"
+                          onClick={() => setRobuxAmount(String(rVal))}
+                          className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition cursor-pointer ${robuxAmount === String(rVal)
+                            ? "bg-sky-600 text-white shadow-2xs"
+                            : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                            }`}
+                        >
+                          {rVal.toLocaleString()} R$
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 2. Rates Grid (Sell Rate & Cost Rate) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    {/* 2.1 เรทขาย */}
+                    <div className="space-y-1.5 p-2.5 rounded-xl bg-white border border-slate-200/80 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                          <span>เรทขาย (Selling Rate)</span>
+                        </label>
+                        <span className="text-[10px] font-bold text-emerald-600">
+                          = ฿{robuxCalculation?.finalSellPrice ? robuxCalculation.finalSellPrice.toLocaleString() : "0"}
+                        </span>
+                      </div>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0.1"
+                        placeholder="เช่น 2.85 หรือ 3.0"
+                        value={sellRate}
+                        onChange={(e) => setSellRate(e.target.value)}
+                        className="h-8 text-xs font-bold bg-slate-50/50 border-slate-200"
+                      />
+                      {/* Preset Sell Rate chips */}
+                      <div className="flex flex-wrap gap-1 pt-0.5">
+                        {["2.5", "2.85", "3.0", "3.5", "4.0", "5.0"].map((rate) => (
+                          <button
+                            key={rate}
+                            type="button"
+                            onClick={() => setSellRate(rate)}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${sellRate === rate
+                              ? "bg-emerald-600 text-white"
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                              }`}
+                          >
+                            เรท {rate}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 2.2 เรททุน */}
+                    <div className="space-y-1.5 p-2.5 rounded-xl bg-white border border-slate-200/80 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-rose-400" />
+                          <span>เรทต้นทุน (Cost Rate)</span>
+                        </label>
+                        <span className="text-[10px] font-bold text-slate-600">
+                          = ฿{robuxCalculation?.finalCostPrice ? robuxCalculation.finalCostPrice.toLocaleString() : "0"}
+                        </span>
+                      </div>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0.1"
+                        placeholder="เช่น 3.5 หรือ 4.0"
+                        value={costRate}
+                        onChange={(e) => setCostRate(e.target.value)}
+                        className="h-8 text-xs font-bold bg-slate-50/50 border-slate-200"
+                      />
+                      {/* Preset Cost Rate chips */}
+                      <div className="flex flex-wrap gap-1 pt-0.5">
+                        {["3.5", "4.0", "4.5", "5.0", "6.0", "7.0"].map((rate) => (
+                          <button
+                            key={rate}
+                            type="button"
+                            onClick={() => setCostRate(rate)}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${costRate === rate
+                              ? "bg-rose-600 text-white"
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                              }`}
+                          >
+                            เรท {rate}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Options: Rounding & Note checkbox */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 text-[11px]">
+                    <div className="flex items-center gap-1.5 text-slate-600">
+                      <span className="font-semibold text-slate-500">ปัดเศษ:</span>
+                      <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-white text-[10px]">
+                        <button
+                          type="button"
+                          onClick={() => setRoundMethod("round")}
+                          className={`px-1.5 py-0.5 rounded font-semibold cursor-pointer ${roundMethod === "round"
+                            ? "bg-sky-600 text-white"
+                            : "text-slate-600 hover:text-slate-900"
+                            }`}
+                        >
+                          ปัดปกติ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRoundMethod("ceil")}
+                          className={`px-1.5 py-0.5 rounded font-semibold cursor-pointer ${roundMethod === "ceil"
+                            ? "bg-sky-600 text-white"
+                            : "text-slate-600 hover:text-slate-900"
+                            }`}
+                        >
+                          ปัดขึ้น
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRoundMethod("exact")}
+                          className={`px-1.5 py-0.5 rounded font-semibold cursor-pointer ${roundMethod === "exact"
+                            ? "bg-sky-600 text-white"
+                            : "text-slate-600 hover:text-slate-900"
+                            }`}
+                        >
+                          ทศนิยม 2 ตำแหน่ง
+                        </button>
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-1.5 cursor-pointer text-slate-600 select-none">
+                      <input
+                        type="checkbox"
+                        checked={calcNoteFormat}
+                        onChange={(e) => setCalcNoteFormat(e.target.checked)}
+                        className="rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                      />
+                      <span>ใส่หมายเหตุอัตโนมัติ (เช่น &quot;300 Robux&quot;)</span>
+                    </label>
+                  </div>
+
+                  {/* 4. Live Calculation Box & Apply Action */}
+                  {robuxCalculation && robuxCalculation.finalSellPrice > 0 && (
+                    <div className="p-3 rounded-xl bg-white border border-sky-300 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in-50 duration-150">
+                      <div className="space-y-0.5">
+                        <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                          <span className="text-emerald-700">
+                            ขาย ฿{robuxCalculation.finalSellPrice.toLocaleString(undefined, { minimumFractionDigits: roundMethod === "exact" ? 2 : 0 })}
+                          </span>
+                          <span className="text-slate-300">•</span>
+                          <span className="text-slate-600 font-semibold">
+                            ทุน ฿{robuxCalculation.finalCostPrice.toLocaleString(undefined, { minimumFractionDigits: roundMethod === "exact" ? 2 : 0 })}
+                          </span>
+                          <span className="text-slate-300">•</span>
+                          <span
+                            className={`font-extrabold ${robuxCalculation.isProfit
+                              ? "text-emerald-600"
+                              : robuxCalculation.isLoss
+                                ? "text-rose-600"
+                                : "text-slate-600"
+                              }`}
+                          >
+                            กำไร {robuxCalculation.profit >= 0 ? "+" : ""}฿{robuxCalculation.profit.toFixed(roundMethod === "exact" ? 2 : 0)}
+                            {robuxCalculation.finalSellPrice > 0 ? ` (${robuxCalculation.margin.toFixed(1)}%)` : ""}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          {robuxCalculation.robux.toLocaleString()} Robux (ขายเรท {sellRate || "-"} / ทุนเรท {costRate || "-"})
+                        </p>
+                      </div>
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleApplyRobuxCalc}
+                        className="gap-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs h-8 px-3 rounded-lg shadow-xs shrink-0 cursor-pointer transition-all"
+                      >
+                        {appliedAnim ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 stroke-[3] text-emerald-300" />
+                            <span>ใส่ค่าในฟอร์มแล้ว!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>ใช้ราคานี้ในฟอร์ม</span>
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 3. Amount & Cost Grid */}
           <div className={type === "รายรับ" ? "grid grid-cols-1 sm:grid-cols-2 gap-3" : ""}>
@@ -332,7 +775,7 @@ export function TransactionFormModal({
                     type="number"
                     step="any"
                     min="0"
-                    placeholder="เช่น 86.00"
+                    placeholder="0.00"
                     value={cost}
                     onChange={(e) => setCost(e.target.value)}
                     className="pl-10 h-12 text-2xl font-bold text-slate-900 bg-white border-slate-200"
@@ -348,13 +791,12 @@ export function TransactionFormModal({
           {/* 🌟 Live Real-time Profit (Diff) Box */}
           {diffCalculation && (
             <div
-              className={`p-3 rounded-xl border flex items-center justify-between transition-all animate-modalIn ${
-                diffCalculation.isProfit
-                  ? "bg-emerald-50/80 border-emerald-200 text-emerald-900"
-                  : diffCalculation.isLoss
+              className={`p-3 rounded-xl border flex items-center justify-between transition-all animate-modalIn ${diffCalculation.isProfit
+                ? "bg-emerald-50/80 border-emerald-200 text-emerald-900"
+                : diffCalculation.isLoss
                   ? "bg-rose-50/80 border-rose-200 text-rose-900"
                   : "bg-slate-50 border-slate-200 text-slate-800"
-              }`}
+                }`}
             >
               <div className="flex items-center gap-2">
                 {diffCalculation.isProfit ? (
@@ -367,8 +809,8 @@ export function TransactionFormModal({
                     {diffCalculation.isProfit
                       ? "กำไรของออเดอร์นี้ (Diff Profit)"
                       : diffCalculation.isLoss
-                      ? "ขาดทุนออเดอร์นี้"
-                      : "เท่าทุน"}
+                        ? "ขาดทุนออเดอร์นี้"
+                        : "เท่าทุน"}
                   </span>
                   <p className="text-[11px] opacity-80">
                     ขาย ฿{parseFloat(amount).toLocaleString()} - ทุน ฿{parseFloat(cost).toLocaleString()}
@@ -377,13 +819,12 @@ export function TransactionFormModal({
               </div>
               <div className="text-right">
                 <div
-                  className={`text-lg font-extrabold tracking-tight ${
-                    diffCalculation.isProfit
-                      ? "text-emerald-600"
-                      : diffCalculation.isLoss
+                  className={`text-lg font-extrabold tracking-tight ${diffCalculation.isProfit
+                    ? "text-emerald-600"
+                    : diffCalculation.isLoss
                       ? "text-rose-600"
                       : "text-slate-700"
-                  }`}
+                    }`}
                 >
                   {diffCalculation.profit >= 0 ? "+" : ""}฿{diffCalculation.profit.toFixed(2)}
                 </div>
@@ -413,11 +854,10 @@ export function TransactionFormModal({
                     key={cat}
                     type="button"
                     onClick={() => setCategory(cat)}
-                    className={`px-2.5 py-2 rounded-xl text-xs font-medium text-center truncate border transition cursor-pointer ${
-                      isSelected
-                        ? "bg-sky-50 border-sky-400 text-sky-800 font-bold shadow-xs"
-                        : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
-                    }`}
+                    className={`px-2.5 py-2 rounded-xl text-xs font-medium text-center truncate border transition cursor-pointer ${isSelected
+                      ? "bg-sky-50 border-sky-400 text-sky-800 font-bold shadow-xs"
+                      : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                      }`}
                   >
                     {cat}
                   </button>
@@ -464,10 +904,10 @@ export function TransactionFormModal({
                   </SelectTrigger>
                   <SelectContent className="bg-white border-slate-200 shadow-lg rounded-xl z-[100]">
                     <SelectItem value="บัญชีธนาคาร" className="text-xs font-semibold py-2 cursor-pointer">
-                      🏦 บัญชีธนาคาร
+                      บัญชีธนาคาร
                     </SelectItem>
                     <SelectItem value="ทรูมันนี่วอลเล็ท" className="text-xs font-semibold py-2 cursor-pointer">
-                      📱 ทรูมันนี่วอลเล็ท (TrueMoney)
+                      ทรูมันนี่วอลเล็ท (TrueMoney)
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -510,17 +950,21 @@ export function TransactionFormModal({
               id="submit-transaction-btn"
               type="submit"
               disabled={isSubmitting}
-              className={`w-full h-10 text-sm font-bold shadow-xs ${
-                type === "รายรับ"
-                  ? "bg-sky-600 hover:bg-sky-700 text-white"
-                  : "bg-rose-600 hover:bg-rose-700 text-white"
-              }`}
+              className={`w-full h-10 text-sm font-bold shadow-xs ${type === "รายรับ"
+                ? "bg-sky-600 hover:bg-sky-700 text-white"
+                : "bg-rose-600 hover:bg-rose-700 text-white"
+                }`}
             >
               {isSubmitting ? (
-                <span>กำลังบันทึกข้อมูล...</span>
+                <span>{isEditMode ? "กำลังบันทึกการแก้ไข..." : "กำลังบันทึกข้อมูล..."}</span>
+              ) : isEditMode ? (
+                <span>
+                  บันทึกการแก้ไข {amount ? `(฿${Number(amount).toLocaleString()})` : ""}
+                  {diffCalculation ? ` • กำไร ฿${diffCalculation.profit.toFixed(2)}` : ""}
+                </span>
               ) : (
                 <span>
-                  บันทึก{type} {amount ? `฿${Number(amount).toLocaleString()}` : ""} 
+                  บันทึก{type} {amount ? `฿${Number(amount).toLocaleString()}` : ""}
                   {diffCalculation ? ` (กำไร +฿${diffCalculation.profit.toFixed(2)})` : ""}
                 </span>
               )}

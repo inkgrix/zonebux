@@ -183,3 +183,169 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export async function PUT(request: Request) {
+  try {
+    const body: Transaction = await request.json();
+
+    if (!body.id) {
+      return NextResponse.json(
+        { status: "error", message: "ไม่พบรหัสรายการ (ID) ที่ต้องการแก้ไข" },
+        { status: 400 }
+      );
+    }
+
+    if (!body.amount || isNaN(Number(body.amount))) {
+      return NextResponse.json(
+        { status: "error", message: "กรุณาระบุจำนวนเงินที่ถูกต้อง" },
+        { status: 400 }
+      );
+    }
+
+    const amount = Number(body.amount);
+    const hasCost = body.cost !== undefined && body.cost !== null && !isNaN(Number(body.cost)) && Number(body.cost) > 0;
+    const cost = hasCost ? Number(body.cost) : "";
+    const profit = body.type === "รายรับ" && hasCost ? amount - Number(body.cost) : "";
+
+    const payload = {
+      action: "update",
+      id: body.id,
+      date: body.date || new Date().toISOString().split("T")[0],
+      type: body.type || "รายรับ",
+      category: body.category || "ทั่วไป",
+      amount: amount,
+      cost: cost,
+      profit: profit,
+      note: body.note || "",
+      account: body.account || "ร้าน Zonebux",
+      paymentMethod: body.paymentMethod || "",
+    };
+
+    if (!SCRIPT_URL) {
+      return NextResponse.json(
+        {
+          status: "error",
+          message: "ยังไม่ได้กำหนด GOOGLE_SHEET_API_URL ใน Environment Variables (.env.local)",
+        },
+        { status: 500 }
+      );
+    }
+
+    const res = await fetch(SCRIPT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8",
+      },
+      body: JSON.stringify(payload),
+      redirect: "follow",
+    });
+
+    const text = await res.text();
+
+    if (text.includes("<!DOCTYPE html>") || text.includes("accounts.google.com")) {
+      return NextResponse.json(
+        {
+          status: "auth_required",
+          message:
+            "แก้ไขไม่สำเร็จ: Google Sheet ต้องการสิทธิ์ (โปรดตั้งค่า 'ผู้มีสิทธิ์เข้าถึง' ใน Apps Script เป็น 'ทุกคน / Anyone')",
+        },
+        { status: 403 }
+      );
+    }
+
+    try {
+      const result = JSON.parse(text);
+      return NextResponse.json({
+        status: "success",
+        message: "อัปเดตรายการใน Google Sheet เรียบร้อยแล้ว",
+        data: payload,
+        remoteResponse: result,
+      });
+    } catch {
+      return NextResponse.json({
+        status: "success",
+        message: "ส่งข้อมูลแก้ไขไปยัง Google Sheet เรียบร้อยแล้ว",
+        data: payload,
+      });
+    }
+  } catch (error: unknown) {
+    const errMessage = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json(
+      { status: "error", message: `ไม่สามารถแก้ไขข้อมูลได้: ${errMessage}` },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json(
+        { status: "error", message: "ไม่พบรหัสรายการที่ต้องการลบ (ID)" },
+        { status: 400 }
+      );
+    }
+
+    const payload = {
+      action: "delete",
+      id: id,
+    };
+
+    if (!SCRIPT_URL) {
+      return NextResponse.json(
+        {
+          status: "error",
+          message: "ยังไม่ได้กำหนด GOOGLE_SHEET_API_URL ใน Environment Variables (.env.local)",
+        },
+        { status: 500 }
+      );
+    }
+
+    const res = await fetch(SCRIPT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8",
+      },
+      body: JSON.stringify(payload),
+      redirect: "follow",
+    });
+
+    const text = await res.text();
+
+    if (text.includes("<!DOCTYPE html>") || text.includes("accounts.google.com")) {
+      return NextResponse.json(
+        {
+          status: "auth_required",
+          message:
+            "ลบไม่สำเร็จ: Google Sheet ต้องการสิทธิ์ (โปรดตั้งค่า 'ผู้มีสิทธิ์เข้าถึง' ใน Apps Script เป็น 'ทุกคน / Anyone')",
+        },
+        { status: 403 }
+      );
+    }
+
+    try {
+      const result = JSON.parse(text);
+      return NextResponse.json({
+        status: "success",
+        message: "ลบรายการออกจาก Google Sheet เรียบร้อยแล้ว",
+        id: id,
+        remoteResponse: result,
+      });
+    } catch {
+      return NextResponse.json({
+        status: "success",
+        message: "ส่งคำขอลบไปยัง Google Sheet เรียบร้อยแล้ว",
+        id: id,
+      });
+    }
+  } catch (error: unknown) {
+    const errMessage = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json(
+      { status: "error", message: `ไม่สามารถลบข้อมูลได้: ${errMessage}` },
+      { status: 500 }
+    );
+  }
+}
