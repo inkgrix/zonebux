@@ -163,7 +163,84 @@ function doPost(e) {
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
     const contents = JSON.parse(e.postData.contents);
+    const action = contents.action || "create";
 
+    const data = sheet.getDataRange().getValues();
+    const headers = data.length > 0 ? data[0].map(h => String(h).trim().toLowerCase()) : [];
+    const idIdx = headers.indexOf("id") !== -1 ? headers.indexOf("id") : 0;
+
+    // 🗑️ ACTION: DELETE
+    if (action === "delete") {
+      const targetId = String(contents.id || "");
+      for (let i = 1; i < data.length; i++) {
+        const rowId = String(data[i][idIdx]);
+        if (rowId === targetId || ("row-" + i) === targetId) {
+          sheet.deleteRow(i + 1);
+          return ContentService.createTextOutput(JSON.stringify({
+            status: "success",
+            message: "Deleted successfully",
+            id: targetId
+          })).setMimeType(ContentService.MimeType.JSON);
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "error",
+        message: "Transaction ID not found: " + targetId
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // ✏️ ACTION: UPDATE
+    if (action === "update") {
+      const targetId = String(contents.id || "");
+      let targetRowIndex = -1;
+      for (let i = 1; i < data.length; i++) {
+        const rowId = String(data[i][idIdx]);
+        if (rowId === targetId || ("row-" + i) === targetId) {
+          targetRowIndex = i + 1;
+          break;
+        }
+      }
+
+      if (targetRowIndex === -1) {
+        return ContentService.createTextOutput(JSON.stringify({
+          status: "error",
+          message: "Transaction ID not found: " + targetId
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      const dateIdx = headers.indexOf("date");
+      const typeIdx = headers.indexOf("type");
+      const catIdx = headers.indexOf("category");
+      const amtIdx = headers.indexOf("amount");
+      const noteIdx = headers.indexOf("note");
+      const accIdx = headers.indexOf("account");
+      const costIdx = headers.indexOf("cost");
+      const profitIdx = headers.indexOf("profit");
+      const payIdx = headers.indexOf("paymentmethod") !== -1 ? headers.indexOf("paymentmethod") : headers.indexOf("channel");
+
+      const amount = Number(contents.amount) || 0;
+      const hasCost = contents.cost !== undefined && contents.cost !== "" && !isNaN(Number(contents.cost)) && Number(contents.cost) > 0;
+      const cost = hasCost ? Number(contents.cost) : "";
+      const profit = (contents.type || "รายรับ") === "รายรับ" && hasCost ? (amount - Number(contents.cost)) : "";
+
+      if (dateIdx !== -1) sheet.getRange(targetRowIndex, dateIdx + 1).setValue(contents.date);
+      if (typeIdx !== -1) sheet.getRange(targetRowIndex, typeIdx + 1).setValue(contents.type);
+      if (catIdx !== -1) sheet.getRange(targetRowIndex, catIdx + 1).setValue(contents.category);
+      if (amtIdx !== -1) sheet.getRange(targetRowIndex, amtIdx + 1).setValue(amount);
+      if (noteIdx !== -1) sheet.getRange(targetRowIndex, noteIdx + 1).setValue(contents.note || "");
+      if (accIdx !== -1) sheet.getRange(targetRowIndex, accIdx + 1).setValue(contents.account || "ร้าน Zonebux");
+      if (costIdx !== -1) sheet.getRange(targetRowIndex, costIdx + 1).setValue(cost);
+      if (profitIdx !== -1) sheet.getRange(targetRowIndex, profitIdx + 1).setValue(profit);
+      if (payIdx !== -1) sheet.getRange(targetRowIndex, payIdx + 1).setValue(contents.paymentMethod || "");
+
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        message: "Updated successfully",
+        data: contents
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // ➕ ACTION: CREATE (Default)
     const id = contents.id || "tx_" + new Date().getTime();
     const date = contents.date || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
     const type = contents.type || "รายรับ";
@@ -222,6 +299,9 @@ cp .env.example .env.local
 ```env
 GOOGLE_SHEET_API_URL=https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
 NEXT_PUBLIC_GOOGLE_SHEET_API_URL=https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
+
+# Security PIN (รหัสล็อกหน้าจอ 4-6 หลัก ค่าเริ่มต้นคือ 1234)
+NEXT_PUBLIC_APP_PIN=1234
 ```
 
 ### 3. รัน Development Server
