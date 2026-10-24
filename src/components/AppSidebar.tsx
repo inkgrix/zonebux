@@ -29,9 +29,10 @@ import {
   Wallet,
   RefreshCw,
   Lock,
+  Coins,
 } from "lucide-react";
 
-export type AccountView = "all" | "zonebux" | "general";
+export type AccountView = "all" | "zonebux" | "general" | "binance";
 
 interface AppSidebarProps {
   currentView: AccountView;
@@ -43,6 +44,7 @@ interface AppSidebarProps {
     total: number;
     zonebux: number;
     general: number;
+    binance: number;
   };
   onLock?: () => void;
 }
@@ -166,6 +168,25 @@ export function AppSidebar({
                   <span className="group-data-[collapsible=icon]:hidden">บัญชีร้านทั่วไป</span>
                   <span className="ml-auto text-[11px] font-medium text-slate-400 group-data-[collapsible=icon]:hidden">
                     {transactionsCount.general}
+                  </span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              {/* 4. กระเป๋า Binance (USDT) */}
+              <SidebarMenuItem className="group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:justify-center">
+                <SidebarMenuButton
+                  isActive={currentView === "binance"}
+                  onClick={() => onViewChange("binance")}
+                  tooltip="กระเป๋า Binance (USDT)"
+                  className={`text-xs font-semibold rounded-xl h-9 transition-colors group-data-[collapsible=icon]:size-9 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:justify-center ${currentView === "binance"
+                      ? "bg-amber-50 text-amber-900 font-bold border border-amber-200/60"
+                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                    }`}
+                >
+                  <Coins className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span className="group-data-[collapsible=icon]:hidden">กระเป๋า Binance</span>
+                  <span className="ml-auto text-[11px] font-medium text-slate-400 group-data-[collapsible=icon]:hidden">
+                    {transactionsCount.binance}
                   </span>
                 </SidebarMenuButton>
               </SidebarMenuItem>

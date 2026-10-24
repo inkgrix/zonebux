@@ -64,6 +64,14 @@ export async function GET() {
               ? Number(rawProfit)
               : undefined;
 
+          const rawNote = String(item.Note || item.note || "");
+          const costPaymentMethod =
+            item.CostPaymentMethod ||
+            item.costPaymentMethod ||
+            (rawNote.includes("[ทุน: Binance]") || rawNote.toLowerCase().includes("ทุน: binance")
+              ? "Binance (USDT)"
+              : undefined);
+
           return {
             id: String(item.ID || item.id || `row-${idx}`),
             date: String(item.Date || item.date || new Date().toISOString().split("T")[0]),
@@ -72,9 +80,10 @@ export async function GET() {
             account: (item.Account || item.account || "ร้าน Zonebux") as "ร้าน Zonebux" | "บัญชีร้านทั่วไป",
             amount,
             cost,
+            costPaymentMethod: costPaymentMethod ? String(costPaymentMethod) : undefined,
             profit,
             paymentMethod: String(item.PaymentMethod || item.paymentMethod || item.Channel || item.channel || ""),
-            note: String(item.Note || item.note || ""),
+            note: rawNote,
           };
         }
       );
@@ -126,6 +135,7 @@ export async function POST(request: Request) {
       note: body.note || "",
       account: body.account || "ร้าน Zonebux",
       paymentMethod: body.paymentMethod || "",
+      costPaymentMethod: body.costPaymentMethod || "",
     };
 
     if (!SCRIPT_URL) {
@@ -219,6 +229,7 @@ export async function PUT(request: Request) {
       note: body.note || "",
       account: body.account || "ร้าน Zonebux",
       paymentMethod: body.paymentMethod || "",
+      costPaymentMethod: body.costPaymentMethod || "",
     };
 
     if (!SCRIPT_URL) {
