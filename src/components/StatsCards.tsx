@@ -1,5 +1,10 @@
 import React from "react";
-import { Transaction } from "@/types/transaction";
+import {
+  Transaction,
+  isBinanceDepositTx,
+  isBinanceExpenseTx,
+  isBinanceCostTx,
+} from "@/types/transaction";
 import { Card } from "@/components/ui/card";
 import {
   Wallet,
@@ -14,54 +19,93 @@ import { AccountView } from "./AppSidebar";
 
 interface StatsCardsProps {
   transactions: Transaction[];
+  allTransactions?: Transaction[];
   isLoading: boolean;
   currentView?: AccountView;
 }
 
 export function StatsCards({
   transactions,
+  allTransactions,
   isLoading,
   currentView = "all",
 }: StatsCardsProps) {
+  // คำนวณเงินในกระเป๋า Binance (ใช้รายการทั้งหมด เพื่อให้ยอดคงเหลือ Binance แสดงตรงกันทุกมุมมอง)
+  const binanceSource = allTransactions || transactions;
+  const binanceDeposits = binanceSource
+    .filter(isBinanceDepositTx)
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+  const binanceDepositsCount = binanceSource.filter(isBinanceDepositTx).length;
+
+  // รวมทั้งรายจ่ายตรงผ่าน Binance และต้นทุนออเดอร์ที่จ่ายด้วย Binance
+  const binanceDirectSpent = binanceSource
+    .filter(isBinanceExpenseTx)
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+  const binanceCostSpent = binanceSource
+    .filter(isBinanceCostTx)
+    .reduce((sum, t) => sum + (Number(t.cost) || 0), 0);
+
+  const binanceSpent = binanceDirectSpent + binanceCostSpent;
+
+  const binanceSpentCount =
+    binanceSource.filter(isBinanceExpenseTx).length +
+    binanceSource.filter(isBinanceCostTx).length;
+
+  const binanceBalance = binanceDeposits - binanceSpent;
+  const approxUsdt =
+    binanceBalance > 0 ? (binanceBalance / 35.5).toFixed(2) : "0.00";
+
   const totalIncome = transactions
     .filter((t) => t.type === "รายรับ")
     .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
+  // totalExpense: ห้ามนำเงินเติม/โยกเข้า Binance มาคิดเป็นรายจ่ายร้าน (เพราะเงินยังอยู่ แค่ย้ายกระเป๋า)
   const totalExpense = transactions
-    .filter((t) => t.type === "รายจ่าย")
+    .filter((t) => t.type === "รายจ่าย" && !isBinanceDepositTx(t))
     .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
-  // คำนวณแยกช่องทางธนาคาร vs ทรูมันนี่วอลเล็ท
+  // คำนวณแยกช่องทาง ธนาคาร vs ทรูมันนี่วอลเล็ท vs Binance
+  const isBinanceTx = (pm?: string) =>
+    Boolean(
+      pm &&
+        (pm.toLowerCase().includes("binance") || pm.toLowerCase().includes("usdt"))
+    );
+  const isWalletTx = (pm?: string) => Boolean(pm && pm.includes("วอลเล็ท"));
+  const isBankTx = (pm?: string) =>
+    !isBinanceTx(pm) && (!pm || pm.includes("ธนาคาร") || !isWalletTx(pm));
+
   const bankIncome = transactions
-    .filter(
-      (t) =>
-        t.type === "รายรับ" &&
-        (!t.paymentMethod ||
-          t.paymentMethod.includes("ธนาคาร") ||
-          !t.paymentMethod.includes("วอลเล็ท"))
-    )
+    .filter((t) => t.type === "รายรับ" && isBankTx(t.paymentMethod))
     .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
   const bankIncomeCount = transactions.filter(
-    (t) =>
-      t.type === "รายรับ" &&
-      (!t.paymentMethod ||
-        t.paymentMethod.includes("ธนาคาร") ||
-        !t.paymentMethod.includes("วอลเล็ท"))
+    (t) => t.type === "รายรับ" && isBankTx(t.paymentMethod)
   ).length;
 
   const walletIncome = transactions
-    .filter(
-      (t) =>
-        t.type === "รายรับ" &&
-        Boolean(t.paymentMethod && t.paymentMethod.includes("วอลเล็ท"))
-    )
+    .filter((t) => t.type === "รายรับ" && isWalletTx(t.paymentMethod))
     .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
   const walletIncomeCount = transactions.filter(
-    (t) =>
-      t.type === "รายรับ" &&
-      Boolean(t.paymentMethod && t.paymentMethod.includes("วอลเล็ท"))
+    (t) => t.type === "รายรับ" && isWalletTx(t.paymentMethod)
+  ).length;
+
+  const binanceIncome = transactions
+    .filter((t) => t.type === "รายรับ" && isBinanceTx(t.paymentMethod))
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+  const binanceIncomeCount = transactions.filter(
+    (t) => t.type === "รายรับ" && isBinanceTx(t.paymentMethod)
+  ).length;
+
+  const binanceExpense = transactions
+    .filter((t) => t.type === "รายจ่าย" && isBinanceTx(t.paymentMethod))
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+  const binanceExpenseCount = transactions.filter(
+    (t) => t.type === "รายจ่าย" && isBinanceTx(t.paymentMethod)
   ).length;
 
   // Only consider transactions where a real cost was specified and > 0
@@ -140,7 +184,9 @@ export function StatsCards({
         }`
       : currentView === "general"
       ? `${transactions.filter((t) => t.type === "รายรับ").length} รายการรับเข้า`
-      : `${transactions.filter((t) => t.type === "รายรับ").length} รายการ (ธนาคาร ฿${formatMoney(bankIncome)} • วอเลต ฿${formatMoney(walletIncome)})`;
+      : `${transactions.filter((t) => t.type === "รายรับ").length} รายการ (ธนาคาร ฿${formatMoney(bankIncome)} • วอเลต ฿${formatMoney(walletIncome)}${
+          binanceIncome > 0 ? ` • Binance ฿${formatMoney(binanceIncome)}` : ""
+        })`;
 
   const profitTitle =
     currentView === "zonebux"
@@ -161,16 +207,109 @@ export function StatsCards({
 
   const expenseSubtitle =
     currentView === "zonebux"
-      ? `${
-          transactions.filter((t) => t.type === "รายจ่าย").length
-        } รายการจ่าย (เฉพาะค่าบอท/คืนเงิน)`
-      : `${transactions.filter((t) => t.type === "รายจ่าย").length} รายการจ่าย`;
+      ? `${transactions.filter((t) => t.type === "รายจ่าย").length} รายการจ่าย${
+          binanceExpense > 0
+            ? ` (Binance ฿${formatMoney(binanceExpense)})`
+            : " (เฉพาะค่าบอท/คืนเงิน)"
+        }`
+      : `${transactions.filter((t) => t.type === "รายจ่าย").length} รายการจ่าย${
+          binanceExpense > 0
+            ? ` (Binance ฿${formatMoney(binanceExpense)})`
+            : ""
+        }`;
+
+  // มุมมองเฉพาะ "กระเป๋า Binance"
+  if (currentView === "binance") {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* 1. ยอดคงเหลือใน Binance */}
+        <Card className="p-5 border-amber-200/90 bg-gradient-to-br from-amber-50/70 via-white to-amber-50/30 shadow-xs rounded-2xl">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-amber-900">
+              ยอดคงเหลือใน Binance (USDT)
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs">
+              <Coins className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2.5">
+            <div className="text-2xl sm:text-3xl font-extrabold tracking-tight text-amber-900">
+              {isLoading ? "..." : `฿${formatMoney(binanceBalance)}`}
+            </div>
+            <p className="text-xs text-amber-700/90 mt-1 font-semibold">
+              ≈ ${approxUsdt} USDT (พร้อมใช้ซื้อสต็อก)
+            </p>
+          </div>
+        </Card>
+
+        {/* 2. ยอดเติมเหรียญสะสม */}
+        <Card className="p-5 border-emerald-100 bg-emerald-50/40 shadow-xs rounded-2xl">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-emerald-900">
+              ยอดเติมเหรียญสะสม (Inflow)
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+              <ArrowDownLeft className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2.5">
+            <div className="text-2xl sm:text-3xl font-extrabold tracking-tight text-emerald-700">
+              {isLoading ? "..." : `+฿${formatMoney(binanceDeposits)}`}
+            </div>
+            <p className="text-xs text-emerald-800/80 mt-1 font-semibold">
+              {binanceDepositsCount} รายการโยกเงินเข้ากระเป๋า
+            </p>
+          </div>
+        </Card>
+
+        {/* 3. ยอดจ่ายสต็อก/บอทสะสม */}
+        <Card className="p-5 border-rose-100 bg-rose-50/40 shadow-xs rounded-2xl">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-rose-900">
+              ยอดจ่ายผ่าน Binance (Outflow)
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center">
+              <ArrowUpRight className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2.5">
+            <div className="text-2xl sm:text-3xl font-extrabold tracking-tight text-rose-600">
+              {isLoading ? "..." : `-฿${formatMoney(binanceSpent)}`}
+            </div>
+            <p className="text-xs text-rose-800/80 mt-1 font-semibold">
+              {binanceSpentCount} รายการจ่ายสต็อกและค่าบริการ
+            </p>
+          </div>
+        </Card>
+
+        {/* 4. เรทอ้างอิง */}
+        <Card className="p-5 border-slate-200/80 bg-white shadow-xs rounded-2xl">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500">
+              เรทแปลงสกุลเงินอ้างอิง
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2.5">
+            <div className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-800">
+              ~35.50 THB
+            </div>
+            <p className="text-xs text-slate-400 mt-1 font-medium">
+              อัตราแลกเปลี่ยนโดยประมาณต่อ 1 USDT
+            </p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   if (currentView === "zonebux") {
     return (
       <div
-        className={`grid grid-cols-1 sm:grid-cols-2 ${
-          hasCostData ? "lg:grid-cols-3 xl:grid-cols-5" : "lg:grid-cols-4"
+        className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${
+          hasCostData ? "xl:grid-cols-6" : "xl:grid-cols-5"
         } gap-4`}
       >
         {/* 1. ยอดรับในธนาคาร (Bank) */}
@@ -213,7 +352,27 @@ export function StatsCards({
           </div>
         </Card>
 
-        {/* 3. ยอดขายรวม (Gross Sales) */}
+        {/* 3. กระเป๋า Binance (USDT Wallet) */}
+        <Card className="p-5 border-amber-300/80 bg-gradient-to-br from-amber-50/70 via-white to-amber-50/30 shadow-xs rounded-2xl">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-amber-950">
+              กระเป๋า Binance (USDT)
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs">
+              <Coins className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2.5">
+            <div className="text-2xl sm:text-3xl font-extrabold tracking-tight text-amber-900">
+              {isLoading ? "..." : `฿${formatMoney(binanceBalance)}`}
+            </div>
+            <p className="text-xs text-amber-700/90 mt-1 font-semibold truncate" title={`เติม ฿${formatMoney(binanceDeposits)} • ใช้ ฿${formatMoney(binanceSpent)}`}>
+              ≈ ${approxUsdt} USDT (พร้อมใช้สต็อก)
+            </p>
+          </div>
+        </Card>
+
+        {/* 4. ยอดขายรวม (Gross Sales) */}
         <Card className="p-5 border-slate-200/80 bg-white shadow-xs rounded-2xl">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500">
@@ -228,12 +387,14 @@ export function StatsCards({
               {isLoading ? "..." : `+฿${formatMoney(totalIncome)}`}
             </div>
             <p className="text-xs text-slate-400 mt-1 font-medium">
-              ธนาคาร ฿${formatMoney(bankIncome)} • วอเลต ฿${formatMoney(walletIncome)}
+              ธนาคาร ฿${formatMoney(bankIncome)} • วอเลต ฿${formatMoney(walletIncome)}${
+                binanceIncome > 0 ? ` • Binance ฿${formatMoney(binanceIncome)}` : ""
+              }
             </p>
           </div>
         </Card>
 
-        {/* 4. กำไรสุทธิรอโอนเงินเดือน (Net Profit) */}
+        {/* 5. กำไรสุทธิรอโอนเงินเดือน (Net Profit) */}
         {hasCostData && (
           <Card className="p-5 border-emerald-100 bg-emerald-50/40 shadow-xs rounded-2xl">
             <div className="flex items-center justify-between">
@@ -255,7 +416,7 @@ export function StatsCards({
           </Card>
         )}
 
-        {/* 5. รายจ่ายร้านค้า (Store Expense) */}
+        {/* 6. รายจ่ายร้านค้า (Store Expense) */}
         <Card className="p-5 border-slate-200/80 bg-white shadow-xs rounded-2xl">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500">
@@ -280,8 +441,8 @@ export function StatsCards({
 
   return (
     <div
-      className={`grid grid-cols-1 ${
-        hasCostData ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"
+      className={`grid grid-cols-1 sm:grid-cols-2 ${
+        hasCostData ? "lg:grid-cols-5" : "lg:grid-cols-4"
       } gap-4`}
     >
       {/* 1. ยอดเงินสดในบัญชี (Net Balance / Cash in Bank) */}
@@ -308,7 +469,27 @@ export function StatsCards({
         </div>
       </Card>
 
-      {/* 2. รายรับ / ยอดขาย */}
+      {/* 2. กระเป๋า Binance (USDT Wallet) */}
+      <Card className="p-5 border-amber-300/80 bg-gradient-to-br from-amber-50/70 via-white to-amber-50/30 shadow-xs rounded-2xl">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-amber-950">
+            กระเป๋า Binance (USDT)
+          </span>
+          <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs">
+            <Coins className="w-4 h-4" />
+          </div>
+        </div>
+        <div className="mt-2.5">
+          <div className="text-2xl sm:text-3xl font-extrabold tracking-tight text-amber-900">
+            {isLoading ? "..." : `฿${formatMoney(binanceBalance)}`}
+          </div>
+          <p className="text-xs text-amber-700/90 mt-1 font-semibold truncate" title={`เติม ฿${formatMoney(binanceDeposits)} • ใช้ ฿${formatMoney(binanceSpent)}`}>
+            ≈ ${approxUsdt} USDT (พร้อมใช้สต็อก)
+          </p>
+        </div>
+      </Card>
+
+      {/* 3. รายรับ / ยอดขาย */}
       <Card className="p-5 border-slate-200/80 bg-white shadow-xs rounded-2xl">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-500">

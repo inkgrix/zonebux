@@ -1,7 +1,11 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Transaction } from "@/types/transaction";
+import {
+  Transaction,
+  isBinanceDepositTx,
+  isBinanceExpenseTx,
+} from "@/types/transaction";
 import {
   SidebarProvider,
   SidebarInset,
@@ -24,6 +28,7 @@ import {
   Landmark,
   LayoutDashboard,
   Lock,
+  Coins,
 } from "lucide-react";
 import { PinGate } from "@/components/PinGate";
 
@@ -264,7 +269,10 @@ export default function Home() {
     const general = transactions.filter(
       (t) => t.account === "บัญชีร้านทั่วไป"
     ).length;
-    return { total, zonebux, general };
+    const binance = transactions.filter(
+      (t) => isBinanceDepositTx(t) || isBinanceExpenseTx(t)
+    ).length;
+    return { total, zonebux, general, binance };
   }, [transactions]);
 
   // Filtered transactions for the current view
@@ -277,12 +285,18 @@ export default function Home() {
     if (currentView === "general") {
       return transactions.filter((t) => t.account === "บัญชีร้านทั่วไป");
     }
+    if (currentView === "binance") {
+      return transactions.filter(
+        (t) => isBinanceDepositTx(t) || isBinanceExpenseTx(t)
+      );
+    }
     return transactions;
   }, [transactions, currentView]);
 
   const currentViewTitle = useMemo(() => {
     if (currentView === "zonebux") return "ร้าน Zonebux";
     if (currentView === "general") return "บัญชีร้านทั่วไป";
+    if (currentView === "binance") return "กระเป๋า Binance (USDT)";
     return "ภาพรวมบัญชีทั้งหมด";
   }, [currentView]);
 
@@ -292,6 +306,9 @@ export default function Home() {
     }
     if (currentView === "general") {
       return "แสดงเฉพาะเงินหมุนเวียน เงินโอนเข้า-ออก และค่าใช้จ่ายทั่วไป";
+    }
+    if (currentView === "binance") {
+      return "แสดงยอดเงินคงเหลือ การเติมเหรียญ และประวัติการจ่ายสต็อกผ่าน Binance";
     }
     return "แสดงข้อมูลรวมทั้งร้าน Zonebux และบัญชีร้านทั่วไป";
   }, [currentView]);
@@ -362,6 +379,9 @@ export default function Home() {
               )}
               {currentView === "general" && (
                 <Landmark className="w-4 h-4 text-indigo-600" />
+              )}
+              {currentView === "binance" && (
+                <Coins className="w-4 h-4 text-amber-500" />
               )}
               <span className="text-sm font-bold text-slate-900">
                 {currentViewTitle}
@@ -484,9 +504,10 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 3 Analytics Cards (Filtered by current account view) */}
+          {/* Analytics Cards (Filtered by current account view) */}
           <StatsCards
             transactions={visibleTransactions}
+            allTransactions={transactions}
             isLoading={isLoading}
             currentView={currentView}
           />
@@ -507,7 +528,13 @@ export default function Home() {
                   setIsModalOpen(true);
                 }}
                 onDeleteTransaction={handleDeleteTransaction}
-                accountFilter={currentView === "all" ? "all" : (currentView === "zonebux" ? "ร้าน Zonebux" : "บัญชีร้านทั่วไป")}
+                accountFilter={
+                  currentView === "all" || currentView === "binance"
+                    ? "all"
+                    : currentView === "zonebux"
+                    ? "ร้าน Zonebux"
+                    : "บัญชีร้านทั่วไป"
+                }
               />
             </div>
 

@@ -1,7 +1,13 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
-import { Transaction, TransactionType, AccountType } from "@/types/transaction";
+import {
+  Transaction,
+  TransactionType,
+  AccountType,
+  isBinanceDepositTx,
+  isBinanceCostTx,
+} from "@/types/transaction";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
@@ -44,6 +50,7 @@ import {
   AlertTriangle,
   Loader2,
   Download,
+  Coins,
 } from "lucide-react";
 
 interface TransactionListProps {
@@ -655,6 +662,7 @@ export function TransactionList({
           paginatedTransactions.map((tx, idx) => {
             const isIncome = tx.type === "รายรับ";
             const isZonebux = !tx.account || tx.account === "ร้าน Zonebux";
+            const isDeposit = isBinanceDepositTx(tx);
             return (
               <div
                 key={tx.id || idx}
@@ -663,12 +671,17 @@ export function TransactionList({
                 {/* Left: Type Icon & Info */}
                 <div className="flex items-center gap-3 min-w-0">
                   <div
-                    className={`w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center ${isIncome
-                      ? "bg-emerald-50 text-emerald-600"
-                      : "bg-rose-50 text-rose-600"
-                      }`}
+                    className={`w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center ${
+                      isDeposit
+                        ? "bg-amber-100/80 text-amber-600"
+                        : isIncome
+                        ? "bg-emerald-50 text-emerald-600"
+                        : "bg-rose-50 text-rose-600"
+                    }`}
                   >
-                    {isIncome ? (
+                    {isDeposit ? (
+                      <Coins className="w-4.5 h-4.5" />
+                    ) : isIncome ? (
                       <ArrowDownLeft className="w-4.5 h-4.5 stroke-[2.5]" />
                     ) : (
                       <ArrowUpRight className="w-4.5 h-4.5 stroke-[2.5]" />
@@ -680,14 +693,21 @@ export function TransactionList({
                       <span className="font-semibold text-xs sm:text-sm text-slate-900 truncate">
                         {tx.category || "ไม่มีหมวดหมู่"}
                       </span>
-                      <span
-                        className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${isIncome
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                          : "bg-rose-50 text-rose-700 border-rose-200"
+                      {isDeposit ? (
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded border bg-amber-100 text-amber-900 border-amber-300">
+                          โยกเข้า Binance
+                        </span>
+                      ) : (
+                        <span
+                          className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${
+                            isIncome
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : "bg-rose-50 text-rose-700 border-rose-200"
                           }`}
-                      >
-                        {tx.type}
-                      </span>
+                        >
+                          {tx.type}
+                        </span>
+                      )}
                       <span
                         className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${isZonebux
                           ? "bg-sky-50 text-sky-700 border-sky-200"
@@ -698,12 +718,21 @@ export function TransactionList({
                       </span>
                       {tx.paymentMethod && (
                         <span
-                          className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${tx.paymentMethod.includes("วอลเล็ท")
-                            ? "bg-amber-50 text-amber-800 border-amber-200"
-                            : "bg-slate-100 text-slate-700 border-slate-200"
-                            }`}
+                          className={`text-[10px] font-semibold px-1.5 py-0.2 rounded border ${
+                            tx.paymentMethod.toLowerCase().includes("binance") ||
+                            tx.paymentMethod.toLowerCase().includes("usdt")
+                              ? "bg-amber-500/10 text-amber-800 border-amber-300/80 font-bold"
+                              : tx.paymentMethod.includes("วอลเล็ท")
+                              ? "bg-amber-50 text-amber-800 border-amber-200"
+                              : "bg-slate-100 text-slate-700 border-slate-200"
+                          }`}
                         >
-                          {tx.paymentMethod.includes("วอลเล็ท") ? "วอลเล็ท" : "ธนาคาร"}
+                          {tx.paymentMethod.toLowerCase().includes("binance") ||
+                          tx.paymentMethod.toLowerCase().includes("usdt")
+                            ? "Binance"
+                            : tx.paymentMethod.includes("วอลเล็ท")
+                            ? "วอลเล็ท"
+                            : "ธนาคาร"}
                         </span>
                       )}
                     </div>
@@ -726,20 +755,36 @@ export function TransactionList({
                 <div className="flex items-center gap-2 sm:gap-3.5 shrink-0 pl-3">
                   <div className="text-right">
                     <div
-                      className={`text-sm sm:text-base font-bold ${isIncome ? "text-emerald-600" : "text-rose-600"
-                        }`}
+                      className={`text-sm sm:text-base font-bold ${
+                        isDeposit
+                          ? "text-amber-700 font-extrabold"
+                          : isIncome
+                          ? "text-emerald-600"
+                          : "text-rose-600"
+                      }`}
                     >
-                      {isIncome ? "+" : "-"}฿{formatMoney(tx.amount)}
+                      {isDeposit ? "→" : isIncome ? "+" : "-"}฿{formatMoney(tx.amount)}
                     </div>
+                    {isDeposit && (
+                      <div className="text-[10px] font-medium text-amber-600 mt-0.5">
+                        เข้ากระเป๋า Binance
+                      </div>
+                    )}
 
                     {/* Option 1: Cost & Diff Profit Display */}
                     {isIncome && tx.cost !== undefined && tx.cost > 0 && (() => {
                       const profitVal = tx.profit !== undefined ? tx.profit : tx.amount - tx.cost;
                       const isProfitable = profitVal >= 0;
+                      const isCostFromBinance = isBinanceCostTx(tx);
                       return (
-                        <div className="flex items-center justify-end gap-1 mt-0.5 text-[11px]">
-                          <span className="text-slate-400 font-normal">
+                        <div className="flex items-center justify-end gap-1 mt-0.5 text-[11px] flex-wrap">
+                          <span className="text-slate-400 font-normal flex items-center gap-1">
                             ทุน ฿{formatMoney(tx.cost)}
+                            {isCostFromBinance && (
+                              <span className="text-[9px] font-bold text-amber-800 bg-amber-100/90 border border-amber-300/80 px-1 py-0.2 rounded">
+                                หัก Binance
+                              </span>
+                            )}
                           </span>
                           <span className="text-slate-300">•</span>
                           <span
